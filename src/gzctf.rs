@@ -1,5 +1,7 @@
 use anyhow::Result;
 use chrono::DateTime;
+use serenity::builder::{CreateEmbed, CreateEmbedFooter};
+use serenity::model::colour::Colour;
 
 use crate::models::{Notice, NoticeType};
 
@@ -50,70 +52,66 @@ pub fn format_time(timestamp_ms: u64) -> String {
     }
 }
 
-pub fn format_message(
+/// 截断文本以避免队伍名过长影响观感
+fn truncate_text(text: &str, max_len: usize) -> String {
+    if text.chars().count() > max_len {
+        let truncated: String = text.chars().take(max_len - 1).collect();
+        format!("{}…", truncated)
+    } else {
+        text.to_string()
+    }
+}
+
+pub fn create_embed(
     notice: &Notice,
     notice_type: NoticeType,
     match_name: Option<&str>,
     match_id: u32,
     base_url: &str,
-) -> String {
+) -> CreateEmbed {
     let title = notice_type.get_title();
     let formatted_time = format_time(notice.time);
+    let game_url = format!("{}/games/{}", base_url, match_id);
 
-    // Create match name as a hyperlink
-    let match_link = if let Some(name) = match_name {
-        let game_url = format!("{}/games/{}", base_url, match_id);
-        format!("[{}]({})", name, game_url)
-    } else {
-        String::new()
+    let color = match notice_type {
+        NoticeType::Normal => Colour::from_rgb(59, 130, 246), // Blue
+        NoticeType::NewChallenge => Colour::from_rgb(34, 197, 94), // Green
+        NoticeType::NewHint => Colour::from_rgb(234, 179, 8), // Yellow
+        NoticeType::FirstBlood => Colour::from_rgb(239, 68, 68), // Red
+        NoticeType::SecondBlood => Colour::from_rgb(249, 115, 22), // Orange
+        NoticeType::ThirdBlood => Colour::from_rgb(168, 85, 247), // Purple
     };
 
-    let content = match notice_type {
-        NoticeType::Normal => notice.values.get(0).cloned().unwrap_or_default(),
-        NoticeType::NewChallenge | NoticeType::NewHint => {
-            notice.values.get(0).cloned().unwrap_or_default()
-        }
-        NoticeType::FirstBlood => {
-            if notice.values.len() >= 2 {
-                format!("恭喜{}获得{}的一血", notice.values[0], notice.values[1])
-            } else {
-                notice.values.join(" - ")
-            }
-        }
-        NoticeType::SecondBlood => {
-            if notice.values.len() >= 2 {
-                format!("恭喜{}获得{}的二血", notice.values[0], notice.values[1])
-            } else {
-                notice.values.join(" - ")
-            }
-        }
-        NoticeType::ThirdBlood => {
-            if notice.values.len() >= 2 {
-                format!("恭喜{}获得{}的三血", notice.values[0], notice.values[1])
-            } else {
-                notice.values.join(" - ")
-            }
-        }
-    };
-    // Message header
-    let header = if !match_link.is_empty() {
-        format!("📢 {} {}", match_link, title)
-    } else {
-        format!("📢 {}", title)
-    };
+    let footer = CreateEmbedFooter::new(formatted_time);
+    let mut embed = CreateEmbed::new().title(title).color(color).footer(footer);
+
+    if let Some(name) = match_name {
+        let match_info = format!("**赛事:** [{}]({})", name, game_url);
+        embed = embed.description(&match_info);
+    }
 
     match notice_type {
         NoticeType::Normal => {
-            format!(
-                "{}\n内容：{}\n时间：{}",
-                header, content, formatted_time
-            )
+            let content = notice.values.get(0).cloned().unwrap_or_default();
+            embed = embed.field("公告内容", content, false);
         }
         NoticeType::NewChallenge | NoticeType::NewHint => {
-            format!("{}\n{}\n时间：{}", header, content, formatted_time)
+            let content = notice.values.get(0).cloned().unwrap_or_default();
+            embed = embed.field("题目", content, false);
         }
-        _ => {
-            format!("{}\n{}\n时间：{}", header, content, formatted_time)
+        NoticeType::FirstBlood | NoticeType::SecondBlood | NoticeType::ThirdBlood => {
+            if notice.values.len() >= 2 {
+                let team = &notice.values[0];
+                let challenge = &notice.values[1];
+
+                let team_display = truncate_text(team, 30);
+
+                embed = embed
+                    .field("队伍", team_display, false)
+                    .field("题目", challenge, false);
+            }
         }
     }
+
+    embed
 }

@@ -5,7 +5,7 @@ use tokio::time::{Duration, sleep};
 
 use crate::config::{Config, MatchConfig};
 use crate::discord::DiscordMessenger;
-use crate::gzctf::{GzctfClient, format_message};
+use crate::gzctf::{GzctfClient, create_embed};
 use crate::models::NoticeType;
 use crate::tracker::NoticeTracker;
 use serenity::prelude::Context;
@@ -94,15 +94,15 @@ impl PollingService {
                         "   📤 Broadcasting notice ID {} (time: {}, type: {:?})",
                         notice.id, notice.time, notice_type
                     );
-                    let message = format_message(
+                    let embed = create_embed(
                         notice,
                         notice_type.clone(),
                         match_config.name.as_deref(),
                         match_config.id,
                         &self.config.gzctf.url,
                     );
-                    if let Err(e) = self.messenger.send_message(ctx, &message).await {
-                        eprintln!("[-] Failed to send message: {}", e);
+                    if let Err(e) = self.messenger.send_embed(ctx, embed).await {
+                        eprintln!("[-] Failed to send embed message: {}", e);
                     }
 
                     // 更新最新时间戳
