@@ -7,6 +7,7 @@ mod polling;
 mod tracker;
 
 use anyhow::Result;
+use clap::Parser;
 use serenity::prelude::*;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -15,10 +16,22 @@ use config::Config;
 use handler::BotHandler;
 use tracker::NoticeTracker;
 
+#[derive(Parser, Debug)]
+#[command(name = "dc-bot")]
+#[command(version, about, long_about = None)]
+struct Cli {
+    #[arg(short, long, default_value = "config.toml")]
+    config: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config = Config::from_file("config.toml")
-        .expect("Failed to read config.toml. Please create it with your bot token and settings.");
+    let cli = Cli::parse();
+
+    let config = Config::from_file(&cli.config).unwrap_or_else(|e| {
+        eprintln!("[-] Failed to read config file '{}': {}", cli.config, e);
+        std::process::exit(1);
+    });
 
     print_config_info(&config);
 
