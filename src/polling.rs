@@ -1,11 +1,11 @@
 use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 use crate::config::{Config, MatchConfig};
 use crate::discord::DiscordMessenger;
-use crate::gzctf::{format_message, GzctfClient};
+use crate::gzctf::{GzctfClient, format_message};
 use crate::models::NoticeType;
 use crate::tracker::NoticeTracker;
 use serenity::prelude::Context;
@@ -40,7 +40,9 @@ impl PollingService {
                     for notice_type in &notice_types {
                         let filtered = GzctfClient::filter_by_type(&notices, notice_type.clone());
                         let type_str = format!("{:?}", notice_type);
-                        tracker_write.set_count(match_config.id, &type_str, filtered.len());
+                        // 现有公告 -> 认为已播报
+                        let notice_ids: Vec<u64> = filtered.iter().map(|n| n.id).collect();
+                        tracker_write.mark_all_seen(match_config.id, &type_str, notice_ids);
                     }
                     drop(tracker_write);
                     let name_str = match_config.name.as_deref().unwrap_or("未命名比赛");
@@ -67,20 +69,39 @@ impl PollingService {
         for notice_type in &notice_types {
             let type_str = format!("{:?}", notice_type);
             let filtered = GzctfClient::filter_by_type(&notices, notice_type.clone());
-            let current_count = filtered.len();
-            let previous_count = tracker_write.get_count(match_config.id, &type_str);
 
-            if current_count > previous_count {
-                let new_notices_count = current_count - previous_count;
+            // 新公告
+            let new_notices: Vec<_> = filtered
+                .iter()
+                .filter(|n| {
+                    let is_new = !tracker_write.is_seen(match_config.id, &type_str, n.id);
+                    if is_new {
+                        println!("   🔍 Notice ID {} ({:?}) is NEW", n.id, notice_type);
+                    }
+                    is_new
+                })
+                .collect();
+
+            if !new_notices.is_empty() {
                 let name_str = match_config.name.as_deref().unwrap_or("未命名比赛");
                 println!(
                     "🆕 [Match {} - {}] Found {} new {:?} notice(s)",
-                    match_config.id, name_str, new_notices_count, notice_type
+                    match_config.id,
+                    name_str,
+                    new_notices.len(),
+                    notice_type
                 );
 
-                if let Some(newest_notice) = filtered.first() {
+                let mut sorted_notices = new_notices.clone();
+                sorted_notices.sort_by_key(|n| n.time);
+
+                for notice in &sorted_notices {
+                    println!(
+                        "   📤 Broadcasting notice ID {} (type: {:?})",
+                        notice.id, notice_type
+                    );
                     let message = format_message(
-                        newest_notice,
+                        notice,
                         notice_type.clone(),
                         match_config.name.as_deref(),
                         match_config.id,
@@ -89,9 +110,9 @@ impl PollingService {
                     if let Err(e) = self.messenger.send_message(ctx, &message).await {
                         eprintln!("[-] Failed to send message: {}", e);
                     }
-                }
 
-                tracker_write.set_count(match_config.id, &type_str, current_count);
+                    tracker_write.mark_seen(match_config.id, &type_str, notice.id);
+                }
             }
         }
 
