@@ -1,0 +1,8 @@
+/target/
+config.toml
+.vscode/
+.DS_Store
+.envrc
+GZCTFBOT/
+serenity/
+.cargo/
