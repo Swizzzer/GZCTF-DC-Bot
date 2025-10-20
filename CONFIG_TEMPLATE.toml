@@ -1,0 +1,18 @@
+[discord]
+token = "YOUR_DISCORD_BOT_TOKEN"
+channel_id = 12347347931847109  # Replace with your Discord channel ID
+
+[gzctf]
+url = "https://example.com"  # GZCTF platform URL
+poll_interval = 3  # Polling interval in seconds
+
+
+[[gzctf.matches]]
+id = 2
+name = "训练赛"
+
+[[gzctf.matches]]
+id = 1
+name = "测试"
+
+# you can add more matches as needed
