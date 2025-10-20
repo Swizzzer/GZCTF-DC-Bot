@@ -54,12 +54,16 @@ pub fn format_message(
     notice: &Notice,
     notice_type: NoticeType,
     match_name: Option<&str>,
+    match_id: u32,
+    base_url: &str,
 ) -> String {
     let title = notice_type.get_title();
     let formatted_time = format_time(notice.time);
 
-    let prefix = if let Some(name) = match_name {
-        format!("[{}] ", name)
+    // Create match name as a hyperlink
+    let match_link = if let Some(name) = match_name {
+        let game_url = format!("{}/games/{}", base_url, match_id);
+        format!("[{}]({})", name, game_url)
     } else {
         String::new()
     };
@@ -69,27 +73,47 @@ pub fn format_message(
         NoticeType::NewChallenge | NoticeType::NewHint => {
             notice.values.get(0).cloned().unwrap_or_default()
         }
-        NoticeType::FirstBlood | NoticeType::SecondBlood | NoticeType::ThirdBlood => {
+        NoticeType::FirstBlood => {
             if notice.values.len() >= 2 {
-                format!("{} - {}", notice.values[0], notice.values[1])
+                format!("恭喜{}获得{}的一血", notice.values[0], notice.values[1])
+            } else {
+                notice.values.join(" - ")
+            }
+        }
+        NoticeType::SecondBlood => {
+            if notice.values.len() >= 2 {
+                format!("恭喜{}获得{}的二血", notice.values[0], notice.values[1])
+            } else {
+                notice.values.join(" - ")
+            }
+        }
+        NoticeType::ThirdBlood => {
+            if notice.values.len() >= 2 {
+                format!("恭喜{}获得{}的三血", notice.values[0], notice.values[1])
             } else {
                 notice.values.join(" - ")
             }
         }
     };
+    // Message header
+    let header = if !match_link.is_empty() {
+        format!("📢 {} {}", match_link, title)
+    } else {
+        format!("📢 {}", title)
+    };
 
     match notice_type {
         NoticeType::Normal => {
             format!(
-                "{}{}\n内容：{}\n时间：{}",
-                prefix, title, content, formatted_time
+                "{}\n内容：{}\n时间：{}",
+                header, content, formatted_time
             )
         }
         NoticeType::NewChallenge | NoticeType::NewHint => {
-            format!("{}{}\n{}\n时间：{}", prefix, title, content, formatted_time)
+            format!("{}\n{}\n时间：{}", header, content, formatted_time)
         }
         _ => {
-            format!("{}{}\n{}\n时间：{}", prefix, title, content, formatted_time)
+            format!("{}\n{}\n时间：{}", header, content, formatted_time)
         }
     }
 }

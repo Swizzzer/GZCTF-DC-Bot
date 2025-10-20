@@ -34,12 +34,12 @@ impl NoticeType {
 
     pub fn get_title(&self) -> &str {
         match self {
-            NoticeType::Normal => "【比赛公告】",
-            NoticeType::NewChallenge => "【新增题目】",
-            NoticeType::NewHint => "【题目提示】",
-            NoticeType::FirstBlood => "【一血播报】",
-            NoticeType::SecondBlood => "【二血播报】",
-            NoticeType::ThirdBlood => "【三血播报】",
+            NoticeType::Normal => "**比赛公告**",
+            NoticeType::NewChallenge => "**新增题目**",
+            NoticeType::NewHint => "**题目提示**",
+            NoticeType::FirstBlood => "**一血播报**",
+            NoticeType::SecondBlood => "**二血播报**",
+            NoticeType::ThirdBlood => "**三血播报**",
         }
     }
 

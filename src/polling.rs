@@ -83,6 +83,8 @@ impl PollingService {
                         newest_notice,
                         notice_type.clone(),
                         match_config.name.as_deref(),
+                        match_config.id,
+                        &self.config.gzctf.url,
                     );
                     if let Err(e) = self.messenger.send_message(ctx, &message).await {
                         eprintln!("[-] Failed to send message: {}", e);
