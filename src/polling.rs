@@ -40,9 +40,10 @@ impl PollingService {
                     for notice_type in &notice_types {
                         let filtered = GzctfClient::filter_by_type(&notices, notice_type.clone());
                         let type_str = format!("{:?}", notice_type);
-                        // 现有公告 -> 认为已播报
-                        let notice_ids: Vec<u64> = filtered.iter().map(|n| n.id).collect();
-                        tracker_write.mark_all_seen(match_config.id, &type_str, notice_ids);
+                        if let Some(max_time) = filtered.iter().map(|n| n.time).max() {
+                            tracker_write.set_max_timestamp(match_config.id, &type_str, max_time);
+                            println!("   📅 {:?}: latest timestamp = {}", notice_type, max_time);
+                        }
                     }
                     drop(tracker_write);
                     let name_str = match_config.name.as_deref().unwrap_or("未命名比赛");
@@ -69,36 +70,29 @@ impl PollingService {
         for notice_type in &notice_types {
             let type_str = format!("{:?}", notice_type);
             let filtered = GzctfClient::filter_by_type(&notices, notice_type.clone());
+            let last_max_timestamp = tracker_write.get_max_timestamp(match_config.id, &type_str);
 
-            // 新公告
             let new_notices: Vec<_> = filtered
                 .iter()
-                .filter(|n| {
-                    let is_new = !tracker_write.is_seen(match_config.id, &type_str, n.id);
-                    if is_new {
-                        println!("   🔍 Notice ID {} ({:?}) is NEW", n.id, notice_type);
-                    }
-                    is_new
-                })
+                .filter(|n| n.time > last_max_timestamp)
                 .collect();
 
             if !new_notices.is_empty() {
                 let name_str = match_config.name.as_deref().unwrap_or("未命名比赛");
                 println!(
-                    "🆕 [Match {} - {}] Found {} new {:?} notice(s)",
+                    "🔭 [Match {} - {}] Found {} new {:?} notice(s)",
                     match_config.id,
                     name_str,
                     new_notices.len(),
                     notice_type
                 );
-
                 let mut sorted_notices = new_notices.clone();
                 sorted_notices.sort_by_key(|n| n.time);
 
                 for notice in &sorted_notices {
                     println!(
-                        "   📤 Broadcasting notice ID {} (type: {:?})",
-                        notice.id, notice_type
+                        "   📤 Broadcasting notice ID {} (time: {}, type: {:?})",
+                        notice.id, notice.time, notice_type
                     );
                     let message = format_message(
                         notice,
@@ -111,7 +105,8 @@ impl PollingService {
                         eprintln!("[-] Failed to send message: {}", e);
                     }
 
-                    tracker_write.mark_seen(match_config.id, &type_str, notice.id);
+                    // 更新最新时间戳
+                    tracker_write.update_max_timestamp(match_config.id, &type_str, notice.time);
                 }
             }
         }

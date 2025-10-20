@@ -1,36 +1,34 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 #[derive(Debug, Default)]
 pub struct NoticeTracker {
-    // 已播报的公告 ID：match_id:notice_type -> Set<notice_id>
-    seen_ids: HashMap<String, HashSet<u64>>,
+    // 每种类型公告的最新时间戳：match_id:notice_type -> max_timestamp
+    max_timestamps: HashMap<String, u64>,
 }
 
 impl NoticeTracker {
     pub fn new() -> Self {
         Self {
-            seen_ids: HashMap::new(),
+            max_timestamps: HashMap::new(),
         }
     }
 
-    pub fn is_seen(&self, match_id: u32, notice_type: &str, notice_id: u64) -> bool {
+    pub fn get_max_timestamp(&self, match_id: u32, notice_type: &str) -> u64 {
         let key = format!("{}:{}", match_id, notice_type);
-        self.seen_ids
-            .get(&key)
-            .map(|ids| ids.contains(&notice_id))
-            .unwrap_or(false)
+        *self.max_timestamps.get(&key).unwrap_or(&0)
     }
 
-    pub fn mark_seen(&mut self, match_id: u32, notice_type: &str, notice_id: u64) {
+    // 更新该类型公告的时间戳
+    pub fn update_max_timestamp(&mut self, match_id: u32, notice_type: &str, timestamp: u64) {
         let key = format!("{}:{}", match_id, notice_type);
-        self.seen_ids
-            .entry(key)
-            .or_insert_with(HashSet::new)
-            .insert(notice_id);
+        let current_max = self.max_timestamps.entry(key).or_insert(0);
+        if timestamp > *current_max {
+            *current_max = timestamp;
+        }
     }
 
-    pub fn mark_all_seen(&mut self, match_id: u32, notice_type: &str, notice_ids: Vec<u64>) {
+    pub fn set_max_timestamp(&mut self, match_id: u32, notice_type: &str, timestamp: u64) {
         let key = format!("{}:{}", match_id, notice_type);
-        self.seen_ids.insert(key, notice_ids.into_iter().collect());
+        self.max_timestamps.insert(key, timestamp);
     }
 }
