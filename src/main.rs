@@ -2,6 +2,7 @@ mod config;
 mod discord;
 mod gzctf;
 mod handler;
+mod log;
 mod models;
 mod polling;
 mod tracker;
@@ -29,7 +30,10 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let config = Config::from_file(&cli.config).unwrap_or_else(|e| {
-        eprintln!("[-] Failed to read config file '{}': {}", cli.config, e);
+        log::error(format!(
+            "Failed to read config file '{}': {}",
+            cli.config, e
+        ));
         std::process::exit(1);
     });
 
@@ -50,29 +54,31 @@ async fn main() -> Result<()> {
         .await
         .expect("Failed to create Discord client");
 
-    println!("[+] Starting Discord bot...\n");
+    log::success("Starting Discord bot...\n");
 
     if let Err(why) = client.start().await {
-        eprintln!("[-] Client error: {:?}", why);
+        log::error(format!("Client error: {:?}", why));
     }
 
     Ok(())
 }
 
 fn print_config_info(config: &Config) {
-    println!("📋 Configuration loaded:");
-    println!("   GZCTF URL: {}", config.gzctf.url);
-    println!("   Channel ID: {}", config.discord.channel_id);
-    println!("   Poll interval: {}s", config.gzctf.poll_interval);
+    log::info("Configuration loaded:");
+    log::info(format!("   GZCTF URL: {}", config.gzctf.url));
+    log::info(format!("   Channel ID: {}", config.discord.channel_id));
+    log::info(format!("   Poll interval: {}s", config.gzctf.poll_interval));
 
     let matches = config.get_matches();
-    println!("   Matches to monitor: {}", matches.len());
-    for match_config in &matches {
-        if let Some(name) = &match_config.name {
-            println!("      - ID {} ({})", match_config.id, name);
-        } else {
-            println!("      - ID {}", match_config.id);
-        }
-    }
+    log::info(format!("   Matches to monitor: {}", matches.len()));
+
+    matches.iter().for_each(|match_config| {
+        let msg = match &match_config.name {
+            Some(name) => format!("      - ID {} ({})", match_config.id, name),
+            None => format!("      - ID {}", match_config.id),
+        };
+        log::info(msg);
+    });
+
     println!();
 }

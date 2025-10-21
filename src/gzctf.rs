@@ -22,14 +22,14 @@ impl GzctfClient {
     pub async fn fetch_notices(&self, match_id: u32) -> Result<Vec<Notice>> {
         let api_url = format!("{}/api/game/{}/notices", self.base_url, match_id);
 
-        let response = self.client.get(&api_url).send().await?;
-
-        if !response.status().is_success() {
-            anyhow::bail!("Failed to fetch notices: HTTP {}", response.status());
-        }
-
-        let notices: Vec<Notice> = response.json().await?;
-        Ok(notices)
+        self.client
+            .get(&api_url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await
+            .map_err(Into::into)
     }
 
     pub fn filter_by_type(notices: &[Notice], notice_type: NoticeType) -> Vec<Notice> {
@@ -44,22 +44,23 @@ impl GzctfClient {
 pub fn format_time(timestamp_ms: u64) -> String {
     let timestamp_secs = (timestamp_ms / 1000) as i64;
 
-    if let Some(dt) = DateTime::from_timestamp(timestamp_secs, 0) {
-        let beijing_time = dt.with_timezone(&chrono::FixedOffset::east_opt(8 * 3600).unwrap());
-        beijing_time.format("%Y-%m-%d %H:%M:%S").to_string()
-    } else {
-        format!("{}", timestamp_ms)
-    }
+    DateTime::from_timestamp(timestamp_secs, 0)
+        .map(|dt| {
+            let beijing_tz = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+            dt.with_timezone(&beijing_tz)
+                .format("%Y-%m-%d %H:%M:%S")
+                .to_string()
+        })
+        .unwrap_or_else(|| timestamp_ms.to_string())
 }
 
 // 截断文本以避免队伍名过长影响观感
-fn truncate_text(text: &str, max_len: usize) -> String {
-    if text.chars().count() > max_len {
-        let truncated: String = text.chars().take(max_len - 1).collect();
-        format!("{}…", truncated)
-    } else {
-        text.to_string()
-    }
+fn trunc_text(text: &str, max_len: usize) -> String {
+    let char_count = text.chars().count();
+
+    (char_count > max_len)
+        .then(|| format!("{}…", text.chars().take(max_len - 1).collect::<String>()))
+        .unwrap_or_else(|| text.to_string())
 }
 
 pub fn create_embed(
@@ -69,49 +70,49 @@ pub fn create_embed(
     match_id: u32,
     base_url: &str,
 ) -> CreateEmbed {
-    let title = notice_type.get_title();
-    let formatted_time = format_time(notice.time);
     let game_url = format!("{}/games/{}", base_url, match_id);
 
-    let color = match notice_type {
+    let mut embed = CreateEmbed::new()
+        .title(notice_type.get_title())
+        .color(get_notice_color(&notice_type))
+        .footer(CreateEmbedFooter::new(format_time(notice.time)));
+
+    if let Some(name) = match_name {
+        embed = embed.description(format!("**赛事:** [{}]({})", name, game_url));
+    }
+
+    embed = add_notice_fields(embed, &notice_type, &notice.values);
+
+    embed
+}
+
+fn get_notice_color(notice_type: &NoticeType) -> Colour {
+    match notice_type {
         NoticeType::Normal => Colour::from_rgb(59, 130, 246), // Blue
         NoticeType::NewChallenge => Colour::from_rgb(34, 197, 94), // Green
         NoticeType::NewHint => Colour::from_rgb(234, 179, 8), // Yellow
         NoticeType::FirstBlood => Colour::from_rgb(239, 68, 68), // Red
         NoticeType::SecondBlood => Colour::from_rgb(249, 115, 22), // Orange
         NoticeType::ThirdBlood => Colour::from_rgb(168, 85, 247), // Purple
-    };
-
-    let footer = CreateEmbedFooter::new(formatted_time);
-    let mut embed = CreateEmbed::new().title(title).color(color).footer(footer);
-
-    if let Some(name) = match_name {
-        let match_info = format!("**赛事:** [{}]({})", name, game_url);
-        embed = embed.description(&match_info);
     }
+}
 
+fn add_notice_fields(
+    embed: CreateEmbed,
+    notice_type: &NoticeType,
+    values: &[String],
+) -> CreateEmbed {
     match notice_type {
-        NoticeType::Normal => {
-            let content = notice.values.get(0).cloned().unwrap_or_default();
-            embed = embed.field("公告内容", content, false);
-        }
+        NoticeType::Normal => embed.field(
+            "公告内容",
+            values.first().cloned().unwrap_or_default(),
+            false,
+        ),
         NoticeType::NewChallenge | NoticeType::NewHint => {
-            let content = notice.values.get(0).cloned().unwrap_or_default();
-            embed = embed.field("题目", content, false);
+            embed.field("题目", values.first().cloned().unwrap_or_default(), false)
         }
-        NoticeType::FirstBlood | NoticeType::SecondBlood | NoticeType::ThirdBlood => {
-            if notice.values.len() >= 2 {
-                let team = &notice.values[0];
-                let challenge = &notice.values[1];
-
-                let team_display = truncate_text(team, 30);
-
-                embed = embed
-                    .field("队伍", team_display, false)
-                    .field("题目", challenge, false);
-            }
-        }
+        NoticeType::FirstBlood | NoticeType::SecondBlood | NoticeType::ThirdBlood => embed
+            .field("队伍", trunc_text(&values[0], 30), false)
+            .field("题目", &values[1], false),
     }
-
-    embed
 }

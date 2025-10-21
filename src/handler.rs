@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::config::Config;
+use crate::log;
 use crate::polling::PollingService;
 use crate::tracker::NoticeTracker;
 
@@ -17,30 +18,26 @@ pub struct BotHandler {
 #[async_trait]
 impl EventHandler for BotHandler {
     async fn ready(&self, ctx: Context, ready: Ready) {
-        println!("[+] {} is connected and ready!", ready.user.name);
+        log::success(format!("{} is connected and ready!", ready.user.name));
 
         let config = Arc::clone(&self.config);
         let tracker = Arc::clone(&self.tracker);
         let ctx = Arc::new(ctx);
 
         tokio::spawn(async move {
-            match PollingService::new(config, tracker) {
-                Ok(service) => {
-                    let service = Arc::new(service);
-                    if let Err(e) = service.start_polling(ctx).await {
-                        eprintln!("[-] Error in polling loop: {}", e);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("[-] Failed to create polling service: {}", e);
-                }
-            }
+            PollingService::new(config, tracker)
+                .map(Arc::new)
+                .and_then(|service| {
+                    tokio::runtime::Handle::current()
+                        .block_on(async { service.start_polling(ctx).await })
+                })
+                .unwrap_or_else(|e| log::error(format!("Polling service error: {}", e)));
         });
     }
 
     async fn message(&self, _ctx: Context, msg: Message) {
         if msg.content == "!ping" {
-            println!("📨 Received ping from {}", msg.author.name);
+            log::info(format!("Received ping from {}", msg.author.name));
         }
     }
 }

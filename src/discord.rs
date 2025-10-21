@@ -3,6 +3,8 @@ use serenity::builder::{CreateEmbed, CreateMessage};
 use serenity::model::id::ChannelId;
 use serenity::prelude::*;
 
+use crate::log;
+
 pub struct DiscordMessenger {
     channel_id: u64,
 }
@@ -13,10 +15,10 @@ impl DiscordMessenger {
     }
 
     pub async fn send_embed(&self, ctx: &Context, embed: CreateEmbed) -> Result<()> {
-        let channel = ChannelId::new(self.channel_id);
-        let builder = CreateMessage::new().embed(embed);
-        channel.send_message(&ctx.http, builder).await?;
-        println!("Sent embed message to channel {}", self.channel_id);
-        Ok(())
+        ChannelId::new(self.channel_id)
+            .send_message(&ctx.http, CreateMessage::new().embed(embed))
+            .await
+            .map(|_| log::success(format!("Sent embed message to channel {}", self.channel_id)))
+            .map_err(Into::into)
     }
 }

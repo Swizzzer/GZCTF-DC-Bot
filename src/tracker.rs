@@ -13,13 +13,12 @@ impl NoticeTracker {
         }
     }
 
-    pub fn get_max_timestamp(&self, match_id: u32, notice_type: &str) -> u64 {
+    pub fn get_timestamp(&self, match_id: u32, notice_type: &str) -> u64 {
         let key = format!("{}:{}", match_id, notice_type);
         *self.max_timestamps.get(&key).unwrap_or(&0)
     }
 
-    // 更新该类型公告的时间戳
-    pub fn update_max_timestamp(&mut self, match_id: u32, notice_type: &str, timestamp: u64) {
+    pub fn update_timestamp(&mut self, match_id: u32, notice_type: &str, timestamp: u64) {
         let key = format!("{}:{}", match_id, notice_type);
         let current_max = self.max_timestamps.entry(key).or_insert(0);
         if timestamp > *current_max {
@@ -27,7 +26,7 @@ impl NoticeTracker {
         }
     }
 
-    pub fn set_max_timestamp(&mut self, match_id: u32, notice_type: &str, timestamp: u64) {
+    pub fn set_timestamp(&mut self, match_id: u32, notice_type: &str, timestamp: u64) {
         let key = format!("{}:{}", match_id, notice_type);
         self.max_timestamps.insert(key, timestamp);
     }
