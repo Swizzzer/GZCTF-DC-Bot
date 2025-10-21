@@ -25,13 +25,14 @@ impl EventHandler for BotHandler {
         let ctx = Arc::new(ctx);
 
         tokio::spawn(async move {
-            PollingService::new(config, tracker)
-                .map(Arc::new)
-                .and_then(|service| {
-                    tokio::runtime::Handle::current()
-                        .block_on(async { service.start_polling(ctx).await })
-                })
-                .unwrap_or_else(|e| log::error(format!("Polling service error: {}", e)));
+            match PollingService::new(config, tracker).map(Arc::new) {
+                Ok(service) => {
+                    if let Err(e) = service.start_polling(ctx).await {
+                        log::error(format!("Polling service error: {}", e));
+                    }
+                }
+                Err(e) => log::error(format!("Polling service error: {}", e)),
+            }
         });
     }
 
