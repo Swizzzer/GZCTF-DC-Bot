@@ -52,7 +52,7 @@ pub fn format_time(timestamp_ms: u64) -> String {
     }
 }
 
-/// 截断文本以避免队伍名过长影响观感
+// 截断文本以避免队伍名过长影响观感
 fn truncate_text(text: &str, max_len: usize) -> String {
     if text.chars().count() > max_len {
         let truncated: String = text.chars().take(max_len - 1).collect();

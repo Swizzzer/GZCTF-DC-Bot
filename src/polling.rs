@@ -105,7 +105,7 @@ impl PollingService {
                         eprintln!("[-] Failed to send embed message: {}", e);
                     }
 
-                    // 更新最新时间戳
+                    // 更新时间戳
                     tracker_write.update_max_timestamp(match_config.id, &type_str, notice.time);
                 }
             }
