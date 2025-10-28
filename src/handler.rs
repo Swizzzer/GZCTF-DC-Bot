@@ -8,11 +8,13 @@ use tokio::sync::RwLock;
 use crate::config::Config;
 use crate::log;
 use crate::polling::PollingService;
+use crate::queue::MessageQueue;
 use crate::tracker::NoticeTracker;
 
 pub struct BotHandler {
   pub config: Arc<Config>,
   pub tracker: Arc<RwLock<NoticeTracker>>,
+  pub message_queue: Arc<MessageQueue>,
 }
 
 #[async_trait]
@@ -22,10 +24,13 @@ impl EventHandler for BotHandler {
 
     let config = Arc::clone(&self.config);
     let tracker = Arc::clone(&self.tracker);
+    let message_queue = Arc::clone(&self.message_queue);
     let ctx = Arc::new(ctx);
 
+    message_queue.retrying(Arc::clone(&ctx)).await;
+
     tokio::spawn(async move {
-      match PollingService::new(config, tracker).map(Arc::new) {
+      match PollingService::new(config, tracker, message_queue).map(Arc::new) {
         Ok(service) => {
           if let Err(e) = service.start_polling(ctx).await {
             log::error(format!("Polling service error: {}", e));

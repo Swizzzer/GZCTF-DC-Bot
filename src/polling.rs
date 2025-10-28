@@ -8,6 +8,7 @@ use crate::discord::DiscordMessenger;
 use crate::gzctf::{GzctfClient, create_embed};
 use crate::log;
 use crate::models::{Notice, NoticeType};
+use crate::queue::{MessageItem, MessageQueue};
 use crate::tracker::NoticeTracker;
 use serenity::prelude::Context;
 
@@ -16,10 +17,15 @@ pub struct PollingService {
   gzctf_client: GzctfClient,
   messenger: DiscordMessenger,
   tracker: Arc<RwLock<NoticeTracker>>,
+  message_queue: Arc<MessageQueue>,
 }
 
 impl PollingService {
-  pub fn new(config: Arc<Config>, tracker: Arc<RwLock<NoticeTracker>>) -> Result<Self> {
+  pub fn new(
+    config: Arc<Config>,
+    tracker: Arc<RwLock<NoticeTracker>>,
+    message_queue: Arc<MessageQueue>,
+  ) -> Result<Self> {
     let gzctf_client = GzctfClient::new(config.gzctf.url.clone())?;
     let messenger = DiscordMessenger::new(config.discord.channel_id);
 
@@ -28,6 +34,7 @@ impl PollingService {
       gzctf_client,
       messenger,
       tracker,
+      message_queue,
     })
   }
 
@@ -160,7 +167,28 @@ impl PollingService {
       &self.config.gzctf.url,
     );
 
-    self.messenger.send_embed(ctx, embed).await
+    match self.messenger.send_embed(ctx, embed).await {
+      Ok(_) => Ok(()),
+      Err(e) => {
+        log::error(format!(
+          "Failed to send message: {}. Adding to retry queue.",
+          e
+        ));
+
+        let message_id = format!("{}:{}:{}", match_config.id, notice.id, notice.time);
+        let message_item = MessageItem::new(
+          message_id,
+          notice.clone(),
+          notice_type.clone(),
+          match_config.name.clone(),
+          match_config.id,
+          self.config.gzctf.url.clone(),
+        );
+        self.message_queue.enqueue(message_item).await;
+
+        Err(e)
+      }
+    }
   }
 
   pub async fn start_polling(self: Arc<Self>, ctx: Arc<Context>) -> Result<()> {

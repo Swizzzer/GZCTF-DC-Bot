@@ -5,6 +5,7 @@ mod handler;
 mod log;
 mod models;
 mod polling;
+mod queue;
 mod tracker;
 
 use anyhow::Result;
@@ -14,7 +15,9 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use config::Config;
+use discord::DiscordMessenger;
 use handler::BotHandler;
+use queue::MessageQueue;
 use tracker::NoticeTracker;
 
 #[derive(Parser, Debug)]
@@ -42,11 +45,20 @@ async fn main() -> Result<()> {
   let config = Arc::new(config);
   let tracker = Arc::new(RwLock::new(NoticeTracker::new()));
 
+  let messenger = Arc::new(DiscordMessenger::new(config.discord.channel_id));
+  let persist_path = "failed_messages.json".to_string();
+  let message_queue = Arc::new(MessageQueue::new(persist_path, messenger));
+
+  if let Err(e) = message_queue.load_from_disk().await {
+    log::error(format!("Failed to load persisted messages: {}", e));
+  }
+
   let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
 
   let handler = BotHandler {
     config: Arc::clone(&config),
     tracker: Arc::clone(&tracker),
+    message_queue: Arc::clone(&message_queue),
   };
 
   let mut client = Client::builder(&config.discord.token, intents)
