@@ -9,7 +9,7 @@ pub struct Notice {
   pub time: u64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum NoticeType {
   Normal,
   NewChallenge,
