@@ -53,11 +53,7 @@ impl MessageItem {
       .as_secs()
   }
 
-<<<<<<< HEAD
-  // retry_count=0 -> 2s, retry_count=1 -> 4s, retry_count=2 -> 8s, retry_count=3 -> 16s
-=======
   // delay: 2**(retry_count+1)s
->>>>>>> 0f973c70df1c0acde4a1749d2bf4cf809ca9c4a0
   pub fn calc_delay(&self) -> u64 {
     1u64 << (self.retry_count + 1)
   }
@@ -112,14 +108,11 @@ impl MessageQueue {
       "Loaded {} persisted messages from disk.",
       queue.len()
     ));
-<<<<<<< HEAD
-=======
 
     drop(queue);
     fs::remove_file(path).await?;
     log::info("Cleared persist file after loading messages.");
 
->>>>>>> 0f973c70df1c0acde4a1749d2bf4cf809ca9c4a0
     Ok(())
   }
 
@@ -170,11 +163,7 @@ impl MessageQueue {
 
               if item.should_persist() {
                 log::info(format!(
-<<<<<<< HEAD
-                  "Message {} exceeded max retries. Will persist to disk.",
-=======
                   "Message {} exceeded max retries. Persisting to disk.",
->>>>>>> 0f973c70df1c0acde4a1749d2bf4cf809ca9c4a0
                   item.id
                 ));
                 to_persist.push(item.clone());
@@ -206,11 +195,6 @@ impl MessageQueue {
     });
   }
 
-<<<<<<< HEAD
-  async fn append_to_disk(persist_path: &str, items: &[MessageItem]) -> Result<()> {
-    let path = Path::new(persist_path);
-
-=======
   pub async fn shutdown(&self) -> Result<()> {
     log::info("Shutting down message queue...");
 
@@ -239,7 +223,6 @@ impl MessageQueue {
       return Ok(());
     }
 
->>>>>>> 0f973c70df1c0acde4a1749d2bf4cf809ca9c4a0
     let mut existing_items: Vec<MessageItem> = if path.exists() {
       let content = fs::read_to_string(path).await?;
       serde_json::from_str(&content).unwrap_or_default()
@@ -252,11 +235,7 @@ impl MessageQueue {
     let json = serde_json::to_string_pretty(&existing_items)?;
     fs::write(path, json).await?;
 
-<<<<<<< HEAD
-    log::success(format!(
-=======
     log::info(format!(
->>>>>>> 0f973c70df1c0acde4a1749d2bf4cf809ca9c4a0
       "Appended {} messages to persist file.",
       items.len()
     ));
