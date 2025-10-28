@@ -68,8 +68,23 @@ async fn main() -> Result<()> {
 
   log::success("Starting Discord bot...\n");
 
-  if let Err(why) = client.start().await {
-    log::error(format!("Client error: {:?}", why));
+  let client_task = tokio::spawn(async move {
+    if let Err(why) = client.start().await {
+      log::error(format!("Client error: {:?}", why));
+    }
+  });
+
+  tokio::select! {
+    _ = tokio::signal::ctrl_c() => {
+      log::info("\nReceived Ctrl+C, shutting down...");
+    }
+    _ = client_task => {
+      log::info("Client task finished.");
+    }
+  }
+
+  if let Err(e) = message_queue.shutdown().await {
+    log::error(format!("Failed to save messages on shutdown: {}", e));
   }
 
   Ok(())

@@ -53,7 +53,7 @@ impl MessageItem {
       .as_secs()
   }
 
-  // retry_count=0 -> 2s, retry_count=1 -> 4s, retry_count=2 -> 8s, retry_count=3 -> 16s
+  // delay: 2**(retry_count+1)s
   pub fn calc_delay(&self) -> u64 {
     1u64 << (self.retry_count + 1)
   }
@@ -108,6 +108,11 @@ impl MessageQueue {
       "Loaded {} persisted messages from disk.",
       queue.len()
     ));
+
+    drop(queue);
+    fs::remove_file(path).await?;
+    log::info("Cleared persist file after loading messages.");
+
     Ok(())
   }
 
@@ -158,7 +163,7 @@ impl MessageQueue {
 
               if item.should_persist() {
                 log::info(format!(
-                  "Message {} exceeded max retries. Will persist to disk.",
+                  "Message {} exceeded max retries. Persisting to disk.",
                   item.id
                 ));
                 to_persist.push(item.clone());
@@ -190,8 +195,33 @@ impl MessageQueue {
     });
   }
 
+  pub async fn shutdown(&self) -> Result<()> {
+    log::info("Shutting down message queue...");
+
+    let queue_guard = self.queue.read().await;
+    let remaining_items: Vec<MessageItem> = queue_guard.iter().cloned().collect();
+    drop(queue_guard);
+
+    if remaining_items.is_empty() {
+      log::info("No pending messages to save.");
+      return Ok(());
+    }
+
+    Self::append_to_disk(&self.persist_path, &remaining_items).await?;
+    log::success(format!(
+      "Saved {} pending messages before shutdown.",
+      remaining_items.len()
+    ));
+
+    Ok(())
+  }
+
   async fn append_to_disk(persist_path: &str, items: &[MessageItem]) -> Result<()> {
     let path = Path::new(persist_path);
+
+    if items.is_empty() {
+      return Ok(());
+    }
 
     let mut existing_items: Vec<MessageItem> = if path.exists() {
       let content = fs::read_to_string(path).await?;
@@ -205,7 +235,7 @@ impl MessageQueue {
     let json = serde_json::to_string_pretty(&existing_items)?;
     fs::write(path, json).await?;
 
-    log::success(format!(
+    log::info(format!(
       "Appended {} messages to persist file.",
       items.len()
     ));
