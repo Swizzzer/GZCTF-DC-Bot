@@ -322,6 +322,7 @@ dependencies = [
  "serde_json",
  "serenity",
  "tokio",
+ "tokio-util",
  "toml",
 ]
 

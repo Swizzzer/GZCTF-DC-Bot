@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::fs;
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::{Duration, sleep};
+use tokio_util::sync::CancellationToken;
 
 use crate::discord::DiscordMessenger;
 use crate::gzctf::create_embed;
@@ -79,7 +80,7 @@ pub struct MessageQueue {
   persist_path: String,
   messenger: Arc<DiscordMessenger>,
   persist_lock: Arc<Mutex<()>>,
-  shutdown_signal: Arc<AtomicBool>,
+  shutdown_token: CancellationToken,
   retry_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
@@ -90,7 +91,7 @@ impl MessageQueue {
       persist_path,
       messenger,
       persist_lock: Arc::new(Mutex::new(())),
-      shutdown_signal: Arc::new(AtomicBool::new(false)),
+      shutdown_token: CancellationToken::new(),
       retry_handle: Arc::new(Mutex::new(None)),
     }
   }
@@ -137,19 +138,20 @@ impl MessageQueue {
     let messenger = Arc::clone(&self.messenger);
     let persist_path = self.persist_path.clone();
     let persist_lock = Arc::clone(&self.persist_lock);
-    let shutdown_signal = Arc::clone(&self.shutdown_signal);
+    let shutdown_token = self.shutdown_token.clone();
 
     let handle = tokio::spawn(async move {
       log::info("Message queue retry loop started.");
 
       loop {
-        // shutdown signal check
-        if shutdown_signal.load(Ordering::Relaxed) {
-          log::info("Retry loop received shutdown signal, exiting...");
-          break;
+        tokio::select! {
+          _ = shutdown_token.cancelled() => {
+            log::info("Retry loop received shutdown signal, exiting...");
+            break;
+          }
+          _ = sleep(Duration::from_secs(1)) => {
+          }
         }
-
-        sleep(Duration::from_secs(1)).await;
 
         // use read lock
         let items_to_retry: Vec<MessageItem> = {
@@ -182,8 +184,8 @@ impl MessageQueue {
 
         // use write lock
         let mut to_persist = Vec::new();
-        let mut to_remove_on_success = Vec::new();
-        let mut to_remove_on_retry_success = Vec::new();
+        let mut remove_persist_succ = Vec::new();
+        let mut remove_retry_succ = Vec::new();
 
         {
           let mut queue_guard = queue.write().await;
@@ -193,7 +195,7 @@ impl MessageQueue {
               match result {
                 Ok(_) => {
                   log::success(format!("Retry succeeded for message: {}", item.id));
-                  to_remove_on_retry_success.push(item.id.clone());
+                  remove_retry_succ.push(item.id.clone());
                 }
                 Err(e) => {
                   log::error(format!("Retry failed for message {}: {}", item.id, e));
@@ -204,7 +206,7 @@ impl MessageQueue {
                       item.id
                     ));
                     to_persist.push(item.clone());
-                    to_remove_on_success.push(item.id.clone());
+                    remove_persist_succ.push(item.id.clone());
                   } else {
                     item.increment_retry();
                     let delay = item.calc_delay();
@@ -218,7 +220,7 @@ impl MessageQueue {
             }
           }
 
-          queue_guard.retain(|item| !to_remove_on_retry_success.contains(&item.id));
+          queue_guard.retain(|item| !remove_retry_succ.contains(&item.id));
         }
         // lock released
 
@@ -227,10 +229,10 @@ impl MessageQueue {
             Ok(_) => {
               // can be removed only if persisted successfully
               let mut queue_guard = queue.write().await;
-              queue_guard.retain(|item| !to_remove_on_success.contains(&item.id));
+              queue_guard.retain(|item| !remove_persist_succ.contains(&item.id));
               log::info(format!(
                 "Removed {} persisted messages from queue.",
-                to_remove_on_success.len()
+                remove_persist_succ.len()
               ));
             }
             Err(e) => {
@@ -251,7 +253,7 @@ impl MessageQueue {
   pub async fn shutdown(&self) -> Result<()> {
     log::info("Shutting down message queue...");
 
-    self.shutdown_signal.store(true, Ordering::Relaxed);
+    self.shutdown_token.cancel();
 
     let handle = {
       let mut retry_handle = self.retry_handle.lock().await;
