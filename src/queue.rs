@@ -136,15 +136,23 @@ impl MessageQueue {
       loop {
         sleep(Duration::from_secs(1)).await;
 
-        let mut queue_guard = queue.write().await;
-        let mut to_remove = Vec::new();
-        let mut to_persist = Vec::new();
+        // use read lock
+        let items_to_retry: Vec<MessageItem> = {
+          let queue_guard = queue.read().await;
+          queue_guard
+            .iter()
+            .filter(|item| item.can_retry())
+            .cloned()
+            .collect()
+        };
+        // lock released
 
-        for (idx, item) in queue_guard.iter_mut().enumerate() {
-          if !item.can_retry() {
-            continue;
-          }
+        if items_to_retry.is_empty() {
+          continue;
+        }
 
+        let mut send_results = Vec::new();
+        for item in items_to_retry {
           let embed = create_embed(
             &item.notice,
             item.notice_type.clone(),
@@ -153,38 +161,49 @@ impl MessageQueue {
             &item.base_url,
           );
 
-          match messenger.send_embed(&ctx, embed).await {
-            Ok(_) => {
-              log::success(format!("Retry succeeded for message: {}", item.id));
-              to_remove.push(idx);
-            }
-            Err(e) => {
-              log::error(format!("Retry failed for message {}: {}", item.id, e));
+          let result = messenger.send_embed(&ctx, embed).await;
+          send_results.push((item.id.clone(), result));
+        }
 
-              if item.should_persist() {
-                log::info(format!(
-                  "Message {} exceeded max retries. Persisting to disk.",
-                  item.id
-                ));
-                to_persist.push(item.clone());
-                to_remove.push(idx);
-              } else {
-                item.increment_retry();
-                let delay = item.calc_delay();
-                log::info(format!(
-                  "Message {} will retry in {}s (retry_count={})",
-                  item.id, delay, item.retry_count
-                ));
+        // use write lock
+        let mut to_persist = Vec::new();
+        {
+          let mut queue_guard = queue.write().await;
+          let mut to_remove_ids = Vec::new();
+
+          for (msg_id, result) in send_results {
+            if let Some(item) = queue_guard.iter_mut().find(|i| i.id == msg_id) {
+              match result {
+                Ok(_) => {
+                  log::success(format!("Retry succeeded for message: {}", item.id));
+                  to_remove_ids.push(item.id.clone());
+                }
+                Err(e) => {
+                  log::error(format!("Retry failed for message {}: {}", item.id, e));
+
+                  if item.should_persist() {
+                    log::info(format!(
+                      "Message {} exceeded max retries. Persisting to disk.",
+                      item.id
+                    ));
+                    to_persist.push(item.clone());
+                    to_remove_ids.push(item.id.clone());
+                  } else {
+                    item.increment_retry();
+                    let delay = item.calc_delay();
+                    log::info(format!(
+                      "Message {} will retry in {}s (retry_count={})",
+                      item.id, delay, item.retry_count
+                    ));
+                  }
+                }
               }
             }
           }
-        }
 
-        for &idx in to_remove.iter().rev() {
-          queue_guard.remove(idx);
+          queue_guard.retain(|item| !to_remove_ids.contains(&item.id));
         }
-
-        drop(queue_guard);
+        // lock released
 
         if !to_persist.is_empty() {
           if let Err(e) = Self::append_to_disk(&persist_path, &to_persist).await {
