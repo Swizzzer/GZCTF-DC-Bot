@@ -183,8 +183,8 @@ impl MessageQueue {
 
         // use write lock
         let mut to_persist = Vec::new();
-        let mut to_remove_on_success = Vec::new();
-        let mut to_remove_on_retry_success = Vec::new();
+        let mut remove_persist_succ = Vec::new();
+        let mut remove_retry_succ = Vec::new();
 
         {
           let mut queue_guard = queue.write().await;
@@ -194,7 +194,7 @@ impl MessageQueue {
               match result {
                 Ok(_) => {
                   log::success(format!("Retry succeeded for message: {}", item.id));
-                  to_remove_on_retry_success.push(item.id.clone());
+                  remove_retry_succ.push(item.id.clone());
                 }
                 Err(e) => {
                   log::error(format!("Retry failed for message {}: {}", item.id, e));
@@ -205,7 +205,7 @@ impl MessageQueue {
                       item.id
                     ));
                     to_persist.push(item.clone());
-                    to_remove_on_success.push(item.id.clone());
+                    remove_persist_succ.push(item.id.clone());
                   } else {
                     item.increment_retry();
                     let delay = item.calc_delay();
@@ -219,7 +219,7 @@ impl MessageQueue {
             }
           }
 
-          queue_guard.retain(|item| !to_remove_on_retry_success.contains(&item.id));
+          queue_guard.retain(|item| !remove_retry_succ.contains(&item.id));
         }
         // lock released
 
@@ -228,10 +228,10 @@ impl MessageQueue {
             Ok(_) => {
               // can be removed only if persisted successfully
               let mut queue_guard = queue.write().await;
-              queue_guard.retain(|item| !to_remove_on_success.contains(&item.id));
+              queue_guard.retain(|item| !remove_persist_succ.contains(&item.id));
               log::info(format!(
                 "Removed {} persisted messages from queue.",
-                to_remove_on_success.len()
+                remove_persist_succ.len()
               ));
             }
             Err(e) => {
