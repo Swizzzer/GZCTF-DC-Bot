@@ -4,8 +4,9 @@ use serenity::all::Context;
 use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::fs;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tokio::time::{Duration, sleep};
 
 use crate::discord::DiscordMessenger;
@@ -77,6 +78,9 @@ pub struct MessageQueue {
   queue: Arc<RwLock<VecDeque<MessageItem>>>,
   persist_path: String,
   messenger: Arc<DiscordMessenger>,
+  persist_lock: Arc<Mutex<()>>,
+  shutdown_signal: Arc<AtomicBool>,
+  retry_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 impl MessageQueue {
@@ -85,6 +89,9 @@ impl MessageQueue {
       queue: Arc::new(RwLock::new(VecDeque::new())),
       persist_path,
       messenger,
+      persist_lock: Arc::new(Mutex::new(())),
+      shutdown_signal: Arc::new(AtomicBool::new(false)),
+      retry_handle: Arc::new(Mutex::new(None)),
     }
   }
 
@@ -129,11 +136,19 @@ impl MessageQueue {
     let queue = Arc::clone(&self.queue);
     let messenger = Arc::clone(&self.messenger);
     let persist_path = self.persist_path.clone();
+    let persist_lock = Arc::clone(&self.persist_lock);
+    let shutdown_signal = Arc::clone(&self.shutdown_signal);
 
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
       log::info("Message queue retry loop started.");
 
       loop {
+        // shutdown signal check
+        if shutdown_signal.load(Ordering::Relaxed) {
+          log::info("Retry loop received shutdown signal, exiting...");
+          break;
+        }
+
         sleep(Duration::from_secs(1)).await;
 
         // use read lock
@@ -167,16 +182,18 @@ impl MessageQueue {
 
         // use write lock
         let mut to_persist = Vec::new();
+        let mut to_remove_on_success = Vec::new();
+        let mut to_remove_on_retry_success = Vec::new();
+
         {
           let mut queue_guard = queue.write().await;
-          let mut to_remove_ids = Vec::new();
 
           for (msg_id, result) in send_results {
             if let Some(item) = queue_guard.iter_mut().find(|i| i.id == msg_id) {
               match result {
                 Ok(_) => {
                   log::success(format!("Retry succeeded for message: {}", item.id));
-                  to_remove_ids.push(item.id.clone());
+                  to_remove_on_retry_success.push(item.id.clone());
                 }
                 Err(e) => {
                   log::error(format!("Retry failed for message {}: {}", item.id, e));
@@ -187,7 +204,7 @@ impl MessageQueue {
                       item.id
                     ));
                     to_persist.push(item.clone());
-                    to_remove_ids.push(item.id.clone());
+                    to_remove_on_success.push(item.id.clone());
                   } else {
                     item.increment_retry();
                     let delay = item.calc_delay();
@@ -201,21 +218,52 @@ impl MessageQueue {
             }
           }
 
-          queue_guard.retain(|item| !to_remove_ids.contains(&item.id));
+          queue_guard.retain(|item| !to_remove_on_retry_success.contains(&item.id));
         }
         // lock released
 
         if !to_persist.is_empty() {
-          if let Err(e) = Self::append_to_disk(&persist_path, &to_persist).await {
-            log::error(format!("Failed to persist messages to disk: {}", e));
+          match Self::append_to_disk(&persist_lock, &persist_path, &to_persist).await {
+            Ok(_) => {
+              // can be removed only if persisted successfully
+              let mut queue_guard = queue.write().await;
+              queue_guard.retain(|item| !to_remove_on_success.contains(&item.id));
+              log::info(format!(
+                "Removed {} persisted messages from queue.",
+                to_remove_on_success.len()
+              ));
+            }
+            Err(e) => {
+              log::error(format!("Failed to persist messages to disk: {}", e));
+              log::info("Messages will remain in queue for retry.");
+            }
           }
         }
       }
+
+      log::info("Retry loop finished.");
     });
+
+    let mut retry_handle = self.retry_handle.lock().await;
+    *retry_handle = Some(handle);
   }
 
   pub async fn shutdown(&self) -> Result<()> {
     log::info("Shutting down message queue...");
+
+    self.shutdown_signal.store(true, Ordering::Relaxed);
+
+    let handle = {
+      let mut retry_handle = self.retry_handle.lock().await;
+      retry_handle.take()
+    };
+
+    if let Some(h) = handle {
+      log::info("Waiting for retry loop to finish...");
+      if let Err(e) = h.await {
+        log::error(format!("Error waiting for retry loop: {}", e));
+      }
+    }
 
     let queue_guard = self.queue.read().await;
     let remaining_items: Vec<MessageItem> = queue_guard.iter().cloned().collect();
@@ -226,7 +274,7 @@ impl MessageQueue {
       return Ok(());
     }
 
-    Self::append_to_disk(&self.persist_path, &remaining_items).await?;
+    Self::append_to_disk(&self.persist_lock, &self.persist_path, &remaining_items).await?;
     log::success(format!(
       "Saved {} pending messages before shutdown.",
       remaining_items.len()
@@ -235,12 +283,18 @@ impl MessageQueue {
     Ok(())
   }
 
-  async fn append_to_disk(persist_path: &str, items: &[MessageItem]) -> Result<()> {
-    let path = Path::new(persist_path);
-
+  async fn append_to_disk(
+    persist_lock: &Mutex<()>,
+    persist_path: &str,
+    items: &[MessageItem],
+  ) -> Result<()> {
     if items.is_empty() {
       return Ok(());
     }
+
+    let _guard = persist_lock.lock().await;
+
+    let path = Path::new(persist_path);
 
     let mut existing_items: Vec<MessageItem> = if path.exists() {
       let content = fs::read_to_string(path).await?;
