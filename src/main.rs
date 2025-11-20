@@ -10,14 +10,14 @@ mod tracker;
 
 use anyhow::Result;
 use clap::Parser;
-use serenity::prelude::*;
-use std::sync::Arc;
-use tokio::sync::RwLock;
-
 use config::Config;
 use discord::DiscordMessenger;
 use handler::BotHandler;
 use queue::MessageQueue;
+use serenity::prelude::*;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tokio::time::{Duration, timeout};
 use tracker::NoticeTracker;
 
 #[derive(Parser, Debug)]
@@ -61,10 +61,21 @@ async fn main() -> Result<()> {
     message_queue: Arc::clone(&message_queue),
   };
 
-  let mut client = Client::builder(&config.discord.token, intents)
-    .event_handler(handler)
-    .await
-    .expect("Failed to create Discord client");
+  let mut client = timeout(
+    Duration::from_secs(10),
+    Client::builder(&config.discord.token, intents).event_handler(handler),
+  )
+  .await
+  .map_err(|_| {
+    log::error("Timed out creating Discord client");
+    std::process::exit(1);
+  })
+  .and_then(|res| {
+    res.map_err(|e| {
+      log::error(format!("Failed to create Discord client: {}", e));
+      std::process::exit(1);
+    })
+  })?;
 
   log::success("Starting Discord bot...\n");
 
