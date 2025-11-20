@@ -14,10 +14,11 @@
 ## 配置
 
 1.  重命名 `CONFIG_TEMPLATE.toml` 为 `config.toml`。
-2.  在 `config.toml` 文件中填入必要的配置信息，例如：
+2.  在 `config.toml` 文件中填入必要的配置信息：
     *   Discord Bot Token
-    *   GZCTF API 地址或相关凭据
+    *   GZCTF API 地址
     *   用于发送通知的 Discord 频道 ID
-    *   编译、运行，and enjoy~
+    *   拉取消息的时间间隔
+3. 编译、运行，and enjoy~
 
 
