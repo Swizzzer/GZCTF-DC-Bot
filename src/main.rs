@@ -66,16 +66,14 @@ async fn main() -> Result<()> {
     Client::builder(&config.discord.token, intents).event_handler(handler),
   )
   .await
-  .map_err(|_| {
+  .unwrap_or_else(|_| {
     log::error("Timed out creating Discord client");
     std::process::exit(1);
   })
-  .and_then(|res| {
-    res.map_err(|e| {
-      log::error(format!("Failed to create Discord client: {}", e));
-      std::process::exit(1);
-    })
-  })?;
+  .unwrap_or_else(|e| {
+    log::error(format!("Failed to create Discord client: {}", e));
+    std::process::exit(1);
+  });
 
   log::success("Starting Discord bot...\n");
 
