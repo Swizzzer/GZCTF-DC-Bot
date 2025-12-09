@@ -43,7 +43,15 @@ async fn main() -> Result<()> {
   print_config_info(&config);
 
   let config = Arc::new(config);
-  let tracker = Arc::new(RwLock::new(NoticeTracker::new()));
+  let tracker = match NoticeTracker::load_from_disk("tracker.json").await {
+    Ok(t) => Arc::new(RwLock::new(t)),
+    Err(e) => {
+      log::error(format!("Failed to load tracker: {}", e));
+      Arc::new(RwLock::new(NoticeTracker::with_persist_path(
+        "tracker.json".to_string(),
+      )))
+    }
+  };
 
   let messenger = Arc::new(DiscordMessenger::new(config.discord.channel_id));
   let persist_path = "failed_messages.json".to_string();
@@ -94,6 +102,10 @@ async fn main() -> Result<()> {
 
   if let Err(e) = message_queue.shutdown().await {
     log::error(format!("Failed to save messages on shutdown: {}", e));
+  }
+
+  if let Err(e) = tracker.read().await.save_to_disk().await {
+    log::error(format!("Failed to save tracker on shutdown: {}", e));
   }
 
   Ok(())
