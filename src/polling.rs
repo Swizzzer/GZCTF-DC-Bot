@@ -98,11 +98,6 @@ impl PollingService {
         .await;
     }
 
-    // Save tracker after checking
-    if let Err(e) = tracker.save_to_disk().await {
-      log::error(format!("Failed to save tracker: {}", e));
-    }
-
     Ok(())
   }
 
@@ -231,6 +226,11 @@ impl PollingService {
             match_config.id, e
           ))
         });
+    }
+
+    // Save tracker once after all matches are checked
+    if let Err(e) = self.tracker.read().await.save_to_disk().await {
+      log::error(format!("Failed to save tracker: {}", e));
     }
   }
   fn log_match_info(&self, matches: &[MatchConfig]) {
