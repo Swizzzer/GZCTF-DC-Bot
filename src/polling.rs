@@ -56,6 +56,11 @@ impl PollingService {
         )),
       }
     }
+
+    // Save tracker after initialization
+    if let Err(e) = self.tracker.read().await.save_to_disk().await {
+      log::error(format!("Failed to save tracker after init: {}", e));
+    }
   }
 
   async fn init_match(
@@ -92,6 +97,7 @@ impl PollingService {
         .handle_notices(ctx, match_config, notice_type, &notices, &mut tracker)
         .await;
     }
+
     Ok(())
   }
 
@@ -220,6 +226,11 @@ impl PollingService {
             match_config.id, e
           ))
         });
+    }
+
+    // Save tracker once after all matches are checked
+    if let Err(e) = self.tracker.read().await.save_to_disk().await {
+      log::error(format!("Failed to save tracker: {}", e));
     }
   }
   fn log_match_info(&self, matches: &[MatchConfig]) {
