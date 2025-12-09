@@ -1,7 +1,6 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::Path;
 use tokio::fs;
 
 use crate::log;
@@ -31,14 +30,12 @@ impl NoticeTracker {
   }
 
   pub async fn load_from_disk(persist_path: &str) -> Result<Self> {
-    let path = Path::new(persist_path);
-
-    if !path.exists() {
+    if !fs::try_exists(persist_path).await.unwrap_or(false) {
       log::info("No persisted tracker found, starting fresh.");
       return Ok(Self::with_persist_path(persist_path.to_string()));
     }
 
-    let content = fs::read_to_string(path).await?;
+    let content = fs::read_to_string(persist_path).await?;
     let mut tracker: NoticeTracker = serde_json::from_str(&content)?;
     tracker.persist_path = Some(persist_path.to_string());
 
@@ -56,7 +53,11 @@ impl NoticeTracker {
     };
 
     let json = serde_json::to_string_pretty(&self)?;
-    fs::write(persist_path, json).await?;
+
+    // Atomic write: write to temp file first, then rename
+    let tmp_path = format!("{}.tmp", persist_path);
+    fs::write(&tmp_path, &json).await?;
+    fs::rename(&tmp_path, persist_path).await?;
 
     Ok(())
   }
