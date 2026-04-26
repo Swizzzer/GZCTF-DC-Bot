@@ -1,6 +1,6 @@
 # GZCTF Discord Bot
 
-从[GZCTFBOT](github.com/CTF-Archives/GZCTFBOT)迁移而来的Discord Bot，适用于GZ::CTF的Discord赛事播报机器人。
+从[GZCTFBOT](https://github.com/CTF-Archives/GZCTFBOT)迁移而来的Discord Bot，适用于GZ::CTF的Discord赛事播报机器人。
 
 > [!NOTE]
 > 本项目只在[GZ::CTF](https://github.com/GZTimeWalker/GZCTF) v1.6.1上得到了部分测试，部分旧版本的GZ::CTF通知格式可能与本项目不兼容。
