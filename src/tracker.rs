@@ -74,9 +74,4 @@ impl NoticeTracker {
       *current_max = timestamp;
     }
   }
-
-  pub fn set_timestamp(&mut self, match_id: u32, notice_type: &str, timestamp: u64) {
-    let key = format!("{}:{}", match_id, notice_type);
-    self.max_timestamps.insert(key, timestamp);
-  }
 }
