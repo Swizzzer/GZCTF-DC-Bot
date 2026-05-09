@@ -76,7 +76,7 @@ impl PollingService {
       let type_str = format!("{:?}", notice_type);
 
       filtered.iter().map(|n| n.time).max().map(|max_time| {
-        tracker.set_timestamp(match_config.id, &type_str, max_time);
+        tracker.update_timestamp(match_config.id, &type_str, max_time);
         log::info(format!(
           "   {:?}: latest timestamp = {}",
           notice_type, max_time
